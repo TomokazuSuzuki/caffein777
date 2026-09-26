@@ -1,0 +1,734 @@
+<title>プロジェクト司令塔</title>
+<meta name="description" content="Claude で動かしているプロジェクト・予定・セッションを一か所で管理する">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --bg:#EEF2F4; --surface:#FFFFFF; --surface-2:#F6F8F9; --line:#D9E0E5;
+  --ink:#15212B; --muted:#5A6874; --faint:#8A97A2;
+  --accent:#0E7C63; --accent-ink:#FFFFFF; --accent-soft:#DDF1EA;
+  --warn:#B86A00; --warn-soft:#FBEBD2; --crit:#C23A2E; --crit-soft:#F9DEDA;
+  --info:#2D5DA8; --info-soft:#DEE8F7; --ok:#3B7F3E; --ok-soft:#E1F0E0;
+  --shadow:0 1px 2px rgba(21,33,43,.06),0 4px 16px rgba(21,33,43,.05);
+  --display:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif;
+  --body:"Noto Sans JP","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0D1317; --surface:#151D23; --surface-2:#1B252C; --line:#2A3740;
+    --ink:#E4EBEF; --muted:#9AA9B4; --faint:#6D7C87;
+    --accent:#3CC39D; --accent-ink:#06231A; --accent-soft:#12352C;
+    --warn:#E9A23B; --warn-soft:#3A2A10; --crit:#F0766A; --crit-soft:#3D1D1A;
+    --info:#7FA8EC; --info-soft:#1A2A45; --ok:#7CC57F; --ok-soft:#1B3220;
+    --shadow:0 1px 2px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0D1317; --surface:#151D23; --surface-2:#1B252C; --line:#2A3740;
+  --ink:#E4EBEF; --muted:#9AA9B4; --faint:#6D7C87;
+  --accent:#3CC39D; --accent-ink:#06231A; --accent-soft:#12352C;
+  --warn:#E9A23B; --warn-soft:#3A2A10; --crit:#F0766A; --crit-soft:#3D1D1A;
+  --info:#7FA8EC; --info-soft:#1A2A45; --ok:#7CC57F; --ok-soft:#1B3220;
+  --shadow:0 1px 2px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:14px;line-height:1.6;padding-inline:16px;padding-block:20px 48px}
+.wrap{max-width:1180px;margin:0 auto;display:grid;gap:20px}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance;line-height:1.3}
+h1{font-size:24px;font-weight:700;letter-spacing:.02em}
+h2{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.label{font-size:11px;letter-spacing:.08em;color:var(--muted);font-weight:500}
+button,select,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* header */
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px}
+.today{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.today .date{font-family:var(--mono);font-size:13px;color:var(--muted)}
+.meter{min-width:240px;flex:0 1 320px;display:grid;gap:6px}
+.meter-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.meter-val{font-family:var(--mono);font-size:18px;font-weight:600}
+.bar{height:8px;background:var(--surface-2);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .4s}
+.bar.hot i{background:var(--warn)}
+.bar.over i{background:var(--crit)}
+
+.status-line{font-size:12px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap}
+.status-line b{font-weight:500;color:var(--ink)}
+
+/* layout */
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px;align-items:start}
+@media (max-width:920px){.cols{grid-template-columns:minmax(0,1fr)}}
+.stack{display:grid;gap:20px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
+.panel-h{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.panel-b{padding:14px 16px}
+.count{font-family:var(--mono);font-size:12px;color:var(--muted);font-weight:400}
+
+/* attention */
+.attn{display:grid;gap:8px}
+.attn-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 12px;border-radius:8px;background:var(--surface-2);border-left:3px solid var(--line)}
+.attn-item.crit{border-left-color:var(--crit)}
+.attn-item.warn{border-left-color:var(--warn)}
+.attn-item.info{border-left-color:var(--info)}
+.attn-item .what{min-width:0;overflow-wrap:anywhere}
+.attn-empty{padding:12px;border-radius:8px;background:var(--ok-soft);color:var(--ok);font-weight:500}
+
+/* chips */
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;padding:2px 8px;border-radius:99px;white-space:nowrap;background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+.chip.crit{background:var(--crit-soft);color:var(--crit);border-color:transparent}
+.chip.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+.chip.info{background:var(--info-soft);color:var(--info);border-color:transparent}
+.chip.ok{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+.chip.acc{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+
+/* buttons */
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:6px 12px;font-size:13px;font-weight:500}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.05)}
+.btn.small{padding:3px 9px;font-size:12px}
+.btn.danger{color:var(--crit)}
+.btn.danger.armed{background:var(--crit);color:#fff;border-color:var(--crit)}
+.link{color:var(--accent);text-decoration:none;font-weight:500}
+.link:hover{text-decoration:underline}
+
+/* filters */
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{border:0;background:transparent;padding:4px 10px;font-size:12px;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+
+/* projects */
+.projects{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.proj{border:1px solid var(--line);border-radius:9px;padding:12px 14px;display:grid;gap:8px;background:var(--surface);align-content:start}
+.proj.stale{border-style:dashed;border-color:var(--warn)}
+.proj-h{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.proj-h h3{font-size:15px;overflow-wrap:anywhere}
+.prio{font-family:var(--mono);font-size:11px;color:var(--faint);white-space:nowrap}
+.next{background:var(--surface-2);border-radius:6px;padding:8px 10px;display:grid;gap:2px}
+.next .txt{overflow-wrap:anywhere}
+.meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
+.proj-f{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.proj-f select{font-size:12px;border:1px solid var(--line);border-radius:6px;background:var(--surface);padding:3px 6px}
+.linked{display:grid;gap:4px}
+.linked a{font-size:12px;display:flex;gap:6px;align-items:center;min-width:0}
+.linked a span.t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* agenda */
+.agenda{display:grid;gap:14px}
+.day{display:grid;grid-template-columns:78px minmax(0,1fr);gap:10px}
+.day-h{font-family:var(--mono);font-size:12px;color:var(--muted);padding-top:6px}
+.day-h b{display:block;font-family:var(--display);font-size:14px;color:var(--ink)}
+.day.is-today .day-h b{color:var(--accent)}
+.day-items{display:grid;gap:6px}
+.ev{display:grid;grid-template-columns:auto 52px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 10px;background:var(--surface-2);border-radius:7px}
+.ev.done .ev-t{text-decoration:line-through;color:var(--faint)}
+.ev-time{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.ev-t{overflow-wrap:anywhere}
+.ev input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent)}
+.xbtn{border:0;background:transparent;color:var(--faint);font-size:16px;line-height:1;padding:2px 6px;border-radius:4px}
+.xbtn:hover{color:var(--crit);background:var(--crit-soft)}
+.ev-form{display:grid;grid-template-columns:130px 92px minmax(0,1fr) 150px auto;gap:8px;margin-top:4px}
+@media (max-width:640px){.ev-form{grid-template-columns:1fr 1fr}.ev-form .wide{grid-column:1/-1}}
+.field{border:1px solid var(--line);border-radius:7px;background:var(--surface);padding:6px 9px;font-size:13px;min-width:0;width:100%}
+
+/* sessions */
+.sessions{display:grid}
+.sess{display:grid;gap:5px;padding:11px 16px;border-bottom:1px solid var(--line)}
+.sess:last-child{border-bottom:0}
+.sess-top{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
+.sess-title{font-weight:500;overflow-wrap:anywhere}
+.sess-note{font-size:12px;color:var(--muted);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sess-meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px;color:var(--faint)}
+.sess-meta select{font-size:12px;border:1px solid var(--line);border-radius:6px;background:var(--surface);padding:2px 4px;max-width:150px}
+.sess-empty{padding:16px;color:var(--muted);font-size:13px;display:grid;gap:8px}
+.notice{padding:10px 12px;border-radius:8px;font-size:13px}
+.notice.warn{background:var(--warn-soft);color:var(--warn)}
+.notice.info{background:var(--info-soft);color:var(--info)}
+
+/* dialog */
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);padding:0;width:min(560px,calc(100vw - 32px));box-shadow:0 20px 60px rgba(0,0,0,.25)}
+dialog::backdrop{background:rgba(10,18,24,.45)}
+.dlg{display:grid;gap:12px;padding:18px}
+.dlg .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:480px){.dlg .row{grid-template-columns:1fr}}
+.dlg label{display:grid;gap:4px;font-size:12px;color:var(--muted)}
+.dlg textarea{min-height:80px;resize:vertical}
+.dlg-f{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.show{opacity:1}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div style="display:grid;gap:6px">
+      <div class="today"><h1>プロジェクト司令塔</h1><span class="date" id="todayLabel"></span></div>
+      <div class="status-line" id="statusLine"></div>
+    </div>
+    <div class="meter" id="meter"></div>
+  </header>
+
+  <div class="cols">
+    <div class="stack">
+      <section class="panel" aria-labelledby="attnH">
+        <div class="panel-h"><h2 id="attnH">いま手を付けるべきこと <span class="count" id="attnCount"></span></h2></div>
+        <div class="panel-b"><div class="attn" id="attn"></div></div>
+      </section>
+
+      <section class="panel" aria-labelledby="projH">
+        <div class="panel-h">
+          <h2 id="projH">プロジェクト <span class="count" id="projCount"></span></h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <div class="seg" role="group" aria-label="状態で絞り込み" id="projFilter">
+              <button data-filter="open" aria-pressed="true">進行中</button>
+              <button data-filter="all" aria-pressed="false">すべて</button>
+              <button data-filter="done" aria-pressed="false">完了</button>
+            </div>
+            <button class="btn primary small" data-action="new-project">＋ 追加</button>
+          </div>
+        </div>
+        <div class="panel-b"><div class="projects" id="projects"></div></div>
+      </section>
+
+      <section class="panel" aria-labelledby="agH">
+        <div class="panel-h"><h2 id="agH">これからの予定 <span class="count">7日間</span></h2></div>
+        <div class="panel-b" style="display:grid;gap:14px">
+          <div class="agenda" id="agenda"></div>
+          <form class="ev-form" id="evForm" autocomplete="off">
+            <input class="field" type="date" id="evDate" required aria-label="日付">
+            <input class="field" type="time" id="evTime" aria-label="時刻">
+            <input class="field wide" type="text" id="evTitle" placeholder="予定・締切を追加（例：レビュー返信）" required aria-label="予定の内容">
+            <select class="field" id="evProj" aria-label="関連プロジェクト"></select>
+            <button class="btn primary" type="submit">追加</button>
+          </form>
+        </div>
+      </section>
+    </div>
+
+    <aside class="panel" aria-labelledby="sessH">
+      <div class="panel-h">
+        <h2 id="sessH">Claude セッション <span class="count" id="sessCount"></span></h2>
+        <button class="btn small" data-action="refresh-sessions" id="sessRefresh">更新</button>
+      </div>
+      <div id="sessNotice"></div>
+      <div class="sessions" id="sessions"></div>
+    </aside>
+  </div>
+</div>
+
+<dialog id="projDlg">
+  <form class="dlg" id="projForm" method="dialog" autocomplete="off">
+    <h2 id="projDlgH">プロジェクトを追加</h2>
+    <label>名前<input class="field" id="pName" required></label>
+    <label>次の一手（これだけ見れば再開できる一文）<input class="field" id="pNext" placeholder="例：README に使い方を書く"></label>
+    <div class="row">
+      <label>期限<input class="field" type="date" id="pDue"></label>
+      <label>状態
+        <select class="field" id="pStatus">
+          <option value="active">進行中</option>
+          <option value="waiting">返事・結果待ち</option>
+          <option value="paused">保留</option>
+          <option value="done">完了</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <label>優先度
+        <select class="field" id="pPrio">
+          <option value="1">高</option>
+          <option value="2" selected>中</option>
+          <option value="3">低</option>
+        </select>
+      </label>
+      <label>GitHub リポジトリ（owner/repo）<input class="field" id="pRepo" placeholder="任意。一致するセッションを自動で紐付け"></label>
+    </div>
+    <label>メモ<textarea class="field" id="pNotes" placeholder="背景・決めたこと・次に Claude に頼む内容など"></textarea></label>
+    <div class="dlg-f">
+      <button class="btn danger" type="button" id="pDelete">削除</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn" type="button" id="pCancel">キャンセル</button>
+        <button class="btn primary" type="submit">保存</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="setDlg">
+  <form class="dlg" id="setForm" method="dialog">
+    <h2>設定</h2>
+    <div class="row">
+      <label>クレジット予算（USD）<input class="field" type="number" min="0" step="1" id="sBudget"></label>
+      <label>放置警告までの日数<input class="field" type="number" min="1" step="1" id="sStale"></label>
+    </div>
+    <div class="dlg-f">
+      <span></span>
+      <div style="display:flex;gap:8px">
+        <button class="btn" type="button" id="sCancel">キャンセル</button>
+        <button class="btn primary" type="submit">保存</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+"use strict";
+const MCP_SERVER = "Claude Code Remote";
+const LS_KEY = "project-hub-local-v1";
+const STATUS = {
+  active:  {label:"進行中", cls:"acc"},
+  waiting: {label:"待ち",   cls:"info"},
+  paused:  {label:"保留",   cls:""},
+  done:    {label:"完了",   cls:"ok"},
+};
+const PRIO = {1:"高",2:"中",3:"低"};
+
+const state = {
+  projects: {}, events: {}, settings: {creditBudget:100, staleDays:5},
+  sessions: null, sessErr: null, sessAt: null, loading: true,
+  filter: "open", mode: "init", editingId: null,
+};
+let db = null, mcp = null, unwatch = null;
+
+/* ---------- helpers ---------- */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pad = (n) => String(n).padStart(2,"0");
+const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const todayStr = () => ymd(new Date());
+const addDays = (s, n) => { const [y,m,d] = s.split("-").map(Number); return ymd(new Date(y, m-1, d+n)); };
+const daysBetween = (a, b) => { const p = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y,m-1,d).getTime(); }; return Math.round((p(b)-p(a))/86400000); };
+const WD = ["日","月","火","水","木","金","土"];
+const dayLabel = (s) => { const [y,m,d] = s.split("-").map(Number); const dt = new Date(y,m-1,d); return `${m}/${d}（${WD[dt.getDay()]}）`; };
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+const ago = (iso) => {
+  if (!iso) return "";
+  const t = new Date(iso).getTime(); if (isNaN(t)) return "";
+  const m = Math.round((Date.now()-t)/60000);
+  if (m < 1) return "たった今"; if (m < 60) return `${m}分前`;
+  const h = Math.round(m/60); if (h < 24) return `${h}時間前`;
+  return `${Math.round(h/24)}日前`;
+};
+const dueText = (due) => {
+  if (!due) return "";
+  const n = daysBetween(todayStr(), due);
+  if (n < 0) return `${-n}日超過`; if (n === 0) return "今日まで"; if (n === 1) return "明日まで";
+  return `あと${n}日`;
+};
+let toastT;
+const toast = (msg) => { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2200); };
+
+/* ---------- storage ---------- */
+function loadLocal(){
+  try { const raw = localStorage.getItem(LS_KEY); if (raw) { const o = JSON.parse(raw); state.projects = o.projects||{}; state.events = o.events||{}; state.settings = {...state.settings, ...(o.settings||{})}; } } catch(_) {}
+}
+function saveLocal(){
+  try { localStorage.setItem(LS_KEY, JSON.stringify({projects:state.projects, events:state.events, settings:state.settings})); } catch(_) {}
+}
+async function write(kind, id, body){
+  if (state.mode === "db") {
+    try {
+      if (body === null) await db.doc(`${kind}/${id}`).delete();
+      else await db.doc(`${kind}/${id}`).set(body);
+    } catch (e) {
+      toast(e && e.code === "quota_exceeded" ? "保存できる件数の上限です。完了した項目を削除してください" :
+            e && e.code === "invalid_argument" ? "このビューには書き込み権限がありません" : "保存に失敗しました。もう一度お試しください");
+      throw e;
+    }
+  } else {
+    const map = kind === "projects" ? state.projects : kind === "events" ? state.events : null;
+    if (kind === "settings") state.settings = {...state.settings, ...body};
+    else if (body === null) delete map[id]; else map[id] = body;
+    saveLocal(); render();
+  }
+}
+const saveProject = (p) => write("projects", p.id, p);
+const saveEvent = (e) => write("events", e.id, e);
+
+/* ---------- sessions (Claude Code Remote) ---------- */
+function extractSessions(result){
+  let p = result && result.payload;
+  if (typeof p === "string") {
+    const a = p.indexOf("{"), b = p.lastIndexOf("}");
+    if (a >= 0 && b > a) { try { p = JSON.parse(p.slice(a, b+1)); } catch(_) { p = null; } }
+  }
+  if (!p || typeof p !== "object") return [];
+  const arr = Array.isArray(p) ? p : (p.ccr && p.ccr.data) || p.data || p.sessions || [];
+  return Array.isArray(arr) ? arr.filter(s => s && s.id) : [];
+}
+function normSession(s){
+  const b = String(s.status_bucket || s.session_status || "").toUpperCase();
+  let kind = "idle";
+  if (b.includes("FAILED")) kind = "failed";
+  else if (b.includes("BLOCKED")) kind = "blocked";
+  else if (b.includes("REVIEW")) kind = "review";
+  else if (b.includes("WORKING") || b.includes("RUNNING")) kind = "working";
+  else if (b.includes("COMPLETED")) kind = "done";
+  const ctx = s.session_context || {}; const em = s.external_metadata || {};
+  const src = (ctx.sources || []).map(x => x && x.git_repository && x.git_repository.url).filter(Boolean)[0] || "";
+  const repo = src.replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/,"");
+  const pts = s.post_turn_summary || em.post_turn_summary || {};
+  const cost = Number(em.usage && em.usage.cost_usd) || 0;
+  const promo = em.rate_limit_info && em.rate_limit_info.rateLimitType === "ccr_promotional";
+  return { id:s.id, title:s.title || "(無題のセッション)", kind, repo, updated:s.updated_at || s.created_at,
+           needs: pts.needs_action || "", detail: pts.status_detail || pts.recent_action || "", cost, promo };
+}
+const SESS_KIND = {
+  blocked:{label:"入力待ち", cls:"crit"}, failed:{label:"失敗", cls:"crit"},
+  review:{label:"確認待ち", cls:"warn"}, working:{label:"実行中", cls:"info"},
+  done:{label:"完了", cls:"ok"}, idle:{label:"待機", cls:""},
+};
+const sessUrl = (id) => `https://claude.ai/code/${encodeURIComponent(id)}`;
+
+function projectForSession(s){
+  for (const p of Object.values(state.projects)) {
+    if ((p.sessionIds||[]).includes(s.id)) return p;
+  }
+  if (s.repo) for (const p of Object.values(state.projects)) {
+    if (p.repo && p.status !== "done" && s.repo.toLowerCase() === p.repo.toLowerCase().trim()) return p;
+  }
+  return null;
+}
+function sessionsForProject(p){
+  if (!state.sessions) return [];
+  return state.sessions.filter(s => { const q = projectForSession(s); return q && q.id === p.id; });
+}
+
+function startSessions(){
+  if (!mcp) return;
+  if (unwatch) { try { unwatch(); } catch(_){} }
+  state.loading = true; render();
+  unwatch = mcp.watchTool(MCP_SERVER, "list_sessions", {limit: 50}, (ev) => {
+    state.loading = false;
+    if (ev.type === "data") {
+      state.sessions = extractSessions(ev.result).map(normSession);
+      state.sessErr = null;
+      state.sessAt = ev.result.cache ? ev.result.cache.storedAt : Date.now();
+    } else {
+      const c = ev.error && ev.error.code;
+      state.sessErr = ev.error || {code:"upstream_error"};
+      if (["needs_reauth","server_not_connected","blocked_by_policy","approval_required","not_in_manifest","consent_required","not_granted","capability_disabled","capability_removed"].includes(c)) state.sessions = null;
+    }
+    render();
+  }, { cache:{ staleTime: 60000 }, refetchInterval: 180000 });
+}
+async function refreshSessions(){
+  if (!mcp) return;
+  $("sessRefresh").disabled = true;
+  try { await mcp.invalidate(MCP_SERVER, "list_sessions"); } catch(_) { startSessions(); }
+  setTimeout(() => { $("sessRefresh").disabled = false; }, 1500);
+}
+function sessErrorText(e){
+  switch (e.code) {
+    case "needs_reauth": return "Claude Code Remote の接続が切れています。claude.ai の 設定 → コネクタ で再接続してください。";
+    case "server_not_connected": case "selection_required": return "Claude Code Remote コネクタが見つかりません。claude.ai の 設定 → コネクタ で追加してください。";
+    case "not_in_manifest": case "consent_required": return "このページでのセッション読み取りが許可されていません。許可するとセッション一覧が表示されます。";
+    case "blocked_by_policy": case "approval_required": return "組織のポリシーでセッション一覧の取得が制限されています。";
+    case "server_unavailable": case "rate_limited": return "セッション一覧に一時的に接続できません。少し待って「更新」を押してください。";
+    case "tool_error": return "セッション一覧の取得でエラーが返りました：" + (e.message || "");
+    default: return "セッション一覧を取得できませんでした（" + (e.code || "不明") + "）。";
+  }
+}
+
+/* ---------- render ---------- */
+function render(){
+  const today = todayStr();
+  const st = state.settings;
+  $("todayLabel").textContent = `${today.replace(/-/g,".")}（${WD[new Date().getDay()]}）`;
+
+  const projects = Object.values(state.projects);
+  const openP = projects.filter(p => p.status !== "done");
+  const sessions = state.sessions || [];
+
+  /* meter */
+  const spent = sessions.reduce((a,s) => a + (s.promo || !sessions.some(x=>x.promo) ? s.cost : 0), 0);
+  const budget = Number(st.creditBudget) || 0;
+  const pct = budget ? Math.min(100, spent / budget * 100) : 0;
+  $("meter").innerHTML = state.sessions
+    ? `<div class="meter-row"><span class="label">クレジット使用（概算）</span><button class="btn small" data-action="settings">設定</button></div>
+       <div class="meter-row"><span class="meter-val">$${spent.toFixed(2)}</span><span class="mono muted">/ $${budget.toFixed(0)}　残り $${Math.max(0,budget-spent).toFixed(2)}</span></div>
+       <div class="bar ${pct>=100?"over":pct>=75?"hot":""}"><i style="width:${pct.toFixed(1)}%"></i></div>
+       <span class="muted" style="font-size:11px">直近${sessions.length}件のセッションの使用額の合計です。正確な残高は claude.ai で確認してください。</span>`
+    : `<div class="meter-row"><span class="label">クレジット予算</span><button class="btn small" data-action="settings">設定</button></div>
+       <div class="meter-row"><span class="meter-val">$${budget.toFixed(0)}</span><span class="muted" style="font-size:12px">セッション接続後に使用額を表示</span></div>`;
+
+  /* status line */
+  const nBlocked = sessions.filter(s => s.kind === "blocked" || s.kind === "failed").length;
+  const nWorking = sessions.filter(s => s.kind === "working").length;
+  $("statusLine").innerHTML = [
+    `進行中 <b class="mono">${openP.filter(p=>p.status==="active").length}</b>`,
+    `待ち <b class="mono">${openP.filter(p=>p.status==="waiting").length}</b>`,
+    state.sessions ? `実行中のセッション <b class="mono">${nWorking}</b>` : "",
+    state.sessions ? `入力待ち <b class="mono">${nBlocked}</b>` : "",
+    state.mode === "local" ? `<span>この端末のブラウザにだけ保存中</span>` : "",
+  ].filter(Boolean).map(x => `<span>${x}</span>`).join("");
+
+  /* attention */
+  const items = [];
+  for (const s of sessions) {
+    if (s.kind === "blocked" || s.kind === "failed" || s.kind === "review") {
+      const p = projectForSession(s);
+      items.push({sev: s.kind === "review" ? "warn" : "crit", rank: 0,
+        tag: SESS_KIND[s.kind].label,
+        html: `<a class="link" href="${sessUrl(s.id)}" target="_blank" rel="noopener">${esc(s.title)}</a>${p ? ` <span class="muted">· ${esc(p.name)}</span>` : ""}${s.needs ? `<div class="muted" style="font-size:12px">${esc(s.needs)}</div>` : ""}`,
+        right: `<span class="mono muted" style="font-size:12px">${ago(s.updated)}</span>`});
+    }
+  }
+  for (const p of openP) {
+    if (p.due && p.status !== "paused") {
+      const n = daysBetween(today, p.due);
+      if (n <= 1) items.push({sev: n < 0 ? "crit" : "warn", rank: n < 0 ? 1 : 2, tag: n < 0 ? "期限超過" : n === 0 ? "今日まで" : "明日まで",
+        html: `<b>${esc(p.name)}</b>${p.nextAction ? ` — ${esc(p.nextAction)}` : ""}`,
+        right: `<button class="btn small" data-action="edit" data-id="${esc(p.id)}">開く</button>`});
+    }
+  }
+  for (const e of Object.values(state.events)) {
+    if (e.done) continue;
+    if (e.date < today) items.push({sev:"crit", rank:1, tag:"予定超過", html:`${esc(e.title)} <span class="mono muted">${dayLabel(e.date)}</span>`, right:`<button class="btn small" data-action="ev-done" data-id="${esc(e.id)}">済</button>`});
+    else if (e.date === today) items.push({sev:"info", rank:3, tag:`今日${e.time ? " " + e.time : ""}`, html:esc(e.title), right:`<button class="btn small" data-action="ev-done" data-id="${esc(e.id)}">済</button>`});
+  }
+  const staleDays = Number(st.staleDays) || 5;
+  for (const p of openP) {
+    if (p.status !== "active") continue;
+    const last = latestTouch(p);
+    const n = last ? daysBetween(ymd(new Date(last)), today) : 0;
+    if (n >= staleDays) items.push({sev:"warn", rank:4, tag:`${n}日放置`,
+      html:`<b>${esc(p.name)}</b>${p.nextAction ? ` — ${esc(p.nextAction)}` : ` <span class="muted">次の一手が未設定</span>`}`,
+      right:`<button class="btn small" data-action="touch" data-id="${esc(p.id)}">進めた</button>`});
+  }
+  for (const p of openP) {
+    if (p.status === "active" && !p.nextAction) items.push({sev:"info", rank:5, tag:"次の一手なし", html:`<b>${esc(p.name)}</b> <span class="muted">再開用の一文を書いておきましょう</span>`, right:`<button class="btn small" data-action="edit" data-id="${esc(p.id)}">書く</button>`});
+  }
+  items.sort((a,b) => a.rank - b.rank);
+  $("attnCount").textContent = items.length ? `${items.length}件` : "";
+  $("attn").innerHTML = items.length
+    ? items.map(i => `<div class="attn-item ${i.sev}"><span class="chip ${i.sev}">${esc(i.tag)}</span><div class="what">${i.html}</div>${i.right||""}</div>`).join("")
+    : `<div class="attn-empty">急ぎのものはありません。進行中のプロジェクトから次の一手を進めましょう。</div>`;
+
+  /* projects */
+  document.querySelectorAll("#projFilter button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.filter === state.filter)));
+  const list = projects.filter(p => state.filter === "all" ? true : state.filter === "done" ? p.status === "done" : p.status !== "done")
+    .sort((a,b) => {
+      const so = {active:0, waiting:1, paused:2, done:3};
+      return (so[a.status]-so[b.status]) || ((a.priority||2)-(b.priority||2)) || ((a.due||"9999") < (b.due||"9999") ? -1 : (a.due||"9999") > (b.due||"9999") ? 1 : 0) || a.name.localeCompare(b.name, "ja");
+    });
+  $("projCount").textContent = `${openP.length}件進行中`;
+  $("projects").innerHTML = list.length ? list.map(p => projectCard(p, today, staleDays)).join("")
+    : `<div class="muted" style="grid-column:1/-1">${state.filter === "done" ? "完了したプロジェクトはまだありません。" : "プロジェクトがありません。「＋ 追加」から登録してください。"}</div>`;
+
+  /* agenda */
+  const days = [];
+  for (let i = 0; i < 7; i++) days.push(addDays(today, i));
+  const evs = Object.values(state.events);
+  $("agenda").innerHTML = days.map(d => {
+    const dayEvs = evs.filter(e => e.date === d).sort((a,b) => (a.time||"99:99").localeCompare(b.time||"99:99"));
+    const dues = openP.filter(p => p.due === d);
+    if (!dayEvs.length && !dues.length && d !== today) return "";
+    const rows = dayEvs.map(e => `<div class="ev ${e.done?"done":""}">
+        <input type="checkbox" ${e.done?"checked":""} data-action="ev-toggle" data-id="${esc(e.id)}" aria-label="完了にする">
+        <span class="ev-time">${esc(e.time || "終日")}</span>
+        <span class="ev-t">${esc(e.title)}${e.projectId && state.projects[e.projectId] ? ` <span class="chip">${esc(state.projects[e.projectId].name)}</span>` : ""}</span>
+        <button class="xbtn" data-action="ev-del" data-id="${esc(e.id)}" aria-label="削除">×</button></div>`).join("")
+      + dues.map(p => `<div class="ev"><span class="chip warn">期限</span><span class="ev-time"></span><span class="ev-t"><b>${esc(p.name)}</b>${p.nextAction ? ` — ${esc(p.nextAction)}` : ""}</span><span></span></div>`).join("");
+    return `<div class="day ${d===today?"is-today":""}"><div class="day-h"><b>${d===today?"今日":d===addDays(today,1)?"明日":WD[new Date(d.replace(/-/g,"/")).getDay()]+"曜"}</b>${dayLabel(d)}</div>
+      <div class="day-items">${rows || `<span class="muted" style="padding-top:5px">予定なし</span>`}</div></div>`;
+  }).join("");
+  const sel = $("evProj"); const cur = sel.value;
+  sel.innerHTML = `<option value="">プロジェクトなし</option>` + openP.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("");
+  sel.value = cur && state.projects[cur] ? cur : "";
+  if (!$("evDate").value) $("evDate").value = today;
+
+  renderSessions(openP);
+}
+
+function latestTouch(p){
+  let t = p.updatedAt ? new Date(p.updatedAt).getTime() : 0;
+  for (const s of sessionsForProject(p)) { const u = new Date(s.updated).getTime(); if (u > t) t = u; }
+  return t || null;
+}
+
+function projectCard(p, today, staleDays){
+  const st = STATUS[p.status] || STATUS.active;
+  const last = latestTouch(p);
+  const idle = last ? daysBetween(ymd(new Date(last)), today) : 0;
+  const stale = p.status === "active" && idle >= staleDays;
+  const dueN = p.due ? daysBetween(today, p.due) : null;
+  const dueCls = dueN === null ? "" : dueN < 0 ? "crit" : dueN <= 2 ? "warn" : "";
+  const linked = sessionsForProject(p).slice(0, 4);
+  return `<article class="proj ${stale?"stale":""}">
+    <div class="proj-h"><h3>${esc(p.name)}</h3><span class="prio">優先 ${PRIO[p.priority]||"中"}</span></div>
+    <div class="meta"><span class="chip ${st.cls}">${st.label}</span>
+      ${p.due ? `<span class="chip ${dueCls}">${esc(dueText(p.due))}</span>` : ""}
+      ${stale ? `<span class="chip warn">${idle}日放置</span>` : ""}
+      ${p.repo ? `<span class="mono" style="font-size:11px">${esc(p.repo)}</span>` : ""}</div>
+    <div class="next"><span class="label">次の一手</span><span class="txt">${p.nextAction ? esc(p.nextAction) : `<span class="muted">未設定</span>`}</span></div>
+    ${linked.length ? `<div class="linked">${linked.map(s => `<a class="link" href="${sessUrl(s.id)}" target="_blank" rel="noopener"><span class="chip ${SESS_KIND[s.kind].cls}">${SESS_KIND[s.kind].label}</span><span class="t">${esc(s.title)}</span></a>`).join("")}</div>` : ""}
+    <div class="proj-f">
+      <span class="muted" style="font-size:12px">${last ? "最終更新 " + ago(new Date(last).toISOString()) : ""}</span>
+      <span style="display:flex;gap:6px">
+        ${p.status !== "done" ? `<button class="btn small" data-action="touch" data-id="${esc(p.id)}" title="今日進めたことを記録">進めた</button>` : ""}
+        <button class="btn small" data-action="edit" data-id="${esc(p.id)}">編集</button>
+      </span>
+    </div>
+  </article>`;
+}
+
+function renderSessions(openP){
+  const n = $("sessNotice"), box = $("sessions");
+  $("sessRefresh").hidden = !mcp;
+  if (!mcp) {
+    $("sessCount").textContent = "";
+    n.innerHTML = "";
+    box.innerHTML = `<div class="sess-empty"><span>このビューでは Claude のセッション一覧を読み込めません。</span><span>claude.ai 上でこのページを開き、Claude Code Remote コネクタへのアクセスを許可すると、実行中・入力待ちのセッションがここに並び、プロジェクトに紐付けられます。</span></div>`;
+    return;
+  }
+  n.innerHTML = state.sessErr ? `<div class="panel-b" style="padding-bottom:0"><div class="notice ${state.sessions ? "info" : "warn"}">${esc(sessErrorText(state.sessErr))}</div></div>` : "";
+  if (state.sessions === null) {
+    $("sessCount").textContent = "";
+    box.innerHTML = state.loading ? `<div class="sess-empty">セッションを読み込んでいます…</div>` : "";
+    return;
+  }
+  const order = {blocked:0, failed:0, review:1, working:2, idle:3, done:4};
+  const list = [...state.sessions].sort((a,b) => (order[a.kind]-order[b.kind]) || String(b.updated).localeCompare(String(a.updated)));
+  $("sessCount").textContent = `${list.length}件` + (state.sessAt ? ` · ${ago(new Date(state.sessAt).toISOString())}取得` : "");
+  box.innerHTML = list.length ? list.map(s => {
+    const k = SESS_KIND[s.kind]; const p = projectForSession(s);
+    const explicit = p && (p.sessionIds||[]).includes(s.id);
+    return `<div class="sess">
+      <div class="sess-top"><a class="link sess-title" href="${sessUrl(s.id)}" target="_blank" rel="noopener">${esc(s.title)}</a><span class="chip ${k.cls}">${k.label}</span></div>
+      ${s.needs || s.detail ? `<div class="sess-note">${esc(s.needs || s.detail)}</div>` : ""}
+      <div class="sess-meta">
+        <span class="mono">${ago(s.updated)}</span>
+        ${s.repo ? `<span class="mono">${esc(s.repo)}</span>` : ""}
+        ${s.cost ? `<span class="mono">$${s.cost.toFixed(2)}</span>` : ""}
+        <select data-action="link" data-sid="${esc(s.id)}" aria-label="プロジェクトに紐付け">
+          <option value="">${p && !explicit ? "自動：" + esc(p.name) : "未分類"}</option>
+          ${openP.map(q => `<option value="${esc(q.id)}" ${explicit && p.id === q.id ? "selected" : ""}>${esc(q.name)}</option>`).join("")}
+        </select>
+      </div></div>`;
+  }).join("") : `<div class="sess-empty">セッションはまだありません。</div>`;
+}
+
+/* ---------- actions ---------- */
+function openProject(id){
+  const p = id ? state.projects[id] : null;
+  state.editingId = id || null;
+  $("projDlgH").textContent = p ? "プロジェクトを編集" : "プロジェクトを追加";
+  $("pName").value = p ? p.name : "";
+  $("pNext").value = p ? p.nextAction || "" : "";
+  $("pDue").value = p ? p.due || "" : "";
+  $("pStatus").value = p ? p.status : "active";
+  $("pPrio").value = String(p ? p.priority || 2 : 2);
+  $("pRepo").value = p ? p.repo || "" : "";
+  $("pNotes").value = p ? p.notes || "" : "";
+  $("pDelete").hidden = !p;
+  $("pDelete").classList.remove("armed"); $("pDelete").textContent = "削除";
+  $("projDlg").showModal();
+  $("pName").focus();
+}
+
+document.addEventListener("click", async (ev) => {
+  const t = ev.target.closest("[data-action]"); if (!t) return;
+  const a = t.dataset.action, id = t.dataset.id;
+  if (a === "new-project") openProject(null);
+  else if (a === "edit") openProject(id);
+  else if (a === "settings") { $("sBudget").value = state.settings.creditBudget; $("sStale").value = state.settings.staleDays; $("setDlg").showModal(); }
+  else if (a === "refresh-sessions") refreshSessions();
+  else if (a === "touch") {
+    const p = state.projects[id]; if (!p) return;
+    try { await saveProject({...p, updatedAt:new Date().toISOString()}); toast(`「${p.name}」を今日進めたと記録しました`); } catch(_) {}
+  }
+  else if (a === "ev-done") { const e = state.events[id]; if (e) try { await saveEvent({...e, done:true}); toast("完了にしました"); } catch(_) {} }
+  else if (a === "ev-del") { if (state.events[id]) try { await write("events", id, null); toast("予定を削除しました"); } catch(_) {} }
+});
+document.addEventListener("change", async (ev) => {
+  const t = ev.target;
+  if (t.dataset.action === "ev-toggle") { const e = state.events[t.dataset.id]; if (e) try { await saveEvent({...e, done:t.checked}); } catch(_) {} }
+  if (t.dataset.action === "link") {
+    const sid = t.dataset.sid, target = t.value;
+    const writes = [];
+    for (const p of Object.values(state.projects)) {
+      const has = (p.sessionIds||[]).includes(sid);
+      if (has && p.id !== target) writes.push({...p, sessionIds:p.sessionIds.filter(x => x !== sid)});
+      if (!has && p.id === target) writes.push({...p, sessionIds:[...(p.sessionIds||[]), sid], updatedAt:new Date().toISOString()});
+    }
+    try { for (const w of writes) await saveProject(w); toast(target ? `「${state.projects[target].name}」に紐付けました` : "紐付けを外しました"); } catch(_) {}
+  }
+});
+document.querySelectorAll("#projFilter button").forEach(b => b.addEventListener("click", () => {
+  state.filter = b.dataset.filter; try { localStorage.setItem("project-hub-filter", state.filter); } catch(_) {} render();
+}));
+
+$("projForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const old = state.editingId ? state.projects[state.editingId] : null;
+  const now = new Date().toISOString();
+  const p = {
+    id: old ? old.id : newId(),
+    name: $("pName").value.trim(), nextAction: $("pNext").value.trim(),
+    due: $("pDue").value, status: $("pStatus").value, priority: Number($("pPrio").value),
+    repo: $("pRepo").value.trim().replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/,""),
+    notes: $("pNotes").value.trim(), sessionIds: old ? old.sessionIds || [] : [],
+    createdAt: old ? old.createdAt || now : now, updatedAt: now,
+  };
+  if (!p.name) return;
+  $("projDlg").close();
+  try { await saveProject(p); toast(old ? "保存しました" : "プロジェクトを追加しました"); } catch(_) {}
+});
+$("pCancel").addEventListener("click", () => $("projDlg").close());
+$("pDelete").addEventListener("click", async () => {
+  const b = $("pDelete");
+  if (!b.classList.contains("armed")) { b.classList.add("armed"); b.textContent = "もう一度押すと削除"; return; }
+  const id = state.editingId; $("projDlg").close();
+  try { await write("projects", id, null); toast("削除しました"); } catch(_) {}
+});
+$("setForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const s = {creditBudget: Math.max(0, Number($("sBudget").value) || 0), staleDays: Math.max(1, Number($("sStale").value) || 5)};
+  $("setDlg").close();
+  try { await write("settings", "main", {...state.settings, ...s}); toast("設定を保存しました"); } catch(_) {}
+});
+$("sCancel").addEventListener("click", () => $("setDlg").close());
+$("evForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const title = $("evTitle").value.trim(); if (!title) return;
+  const e = {id:newId(), title, date:$("evDate").value || todayStr(), time:$("evTime").value || "", projectId:$("evProj").value || "", done:false, createdAt:new Date().toISOString()};
+  $("evTitle").value = ""; $("evTime").value = "";
+  try { await saveEvent(e); toast("予定を追加しました"); } catch(_) {}
+});
+
+/* ---------- boot ---------- */
+try { const f = localStorage.getItem("project-hub-filter"); if (f) state.filter = f; } catch(_) {}
+render();
+
+const use = (name) => (window.claude && typeof window.claude.use === "function") ? window.claude.use(name).catch(() => null) : Promise.resolve(null);
+
+use("db").then((d) => {
+  db = d;
+  if (!db) { state.mode = "local"; loadLocal(); render(); return; }
+  state.mode = "db";
+  const bind = (coll, key) => db.collection(coll).onSnapshot((snap) => {
+    const m = {}; snap.docs.forEach(doc => { m[doc.id] = {...doc.data(), id: doc.id}; });
+    state[key] = m; render();
+  }, (e) => { if (e.code === "revoked") toast("保存データへのアクセスが無効になりました"); });
+  bind("projects", "projects");
+  bind("events", "events");
+  db.doc("settings/main").onSnapshot((s) => { if (s.exists) { state.settings = {...state.settings, ...s.data()}; render(); } });
+});
+use("mcp").then((m) => {
+  mcp = m;
+  if (mcp) startSessions(); else { state.loading = false; render(); }
+});
+setInterval(render, 60000);
+})();
+</script>
